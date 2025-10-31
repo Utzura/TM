@@ -1,63 +1,86 @@
 import streamlit as st
+import cv2
 import numpy as np
 from PIL import Image
 import tensorflow as tf
+import platform
 
-# Configuración de la página
-st.set_page_config(page_title="📸 Clasificador Teachable Machine", page_icon="🤖", layout="centered")
+# --- Configuración de la página ---
+st.set_page_config(page_title="Reconocimiento de Imágenes", page_icon="📷", layout="centered")
 
+# --- Estilo oscuro elegante ---
 st.markdown("""
     <style>
-        body {background-color: #0e1117; color: white;}
-        .stButton>button {
-            background-color: #2b5cff;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-weight: bold;
-            padding: 8px 16px;
-        }
-        .stImage img {border-radius: 12px;}
+    body { background-color: #0e1117; color: white; }
+    .stApp { background-color: #0e1117; }
+    h1, h2, h3, h4, h5, h6 { color: #FAFAFA !important; }
+    .stButton>button { background-color: #262730; color: white; border-radius: 8px; }
+    .stButton>button:hover { background-color: #444654; }
     </style>
 """, unsafe_allow_html=True)
 
-# Cargar modelo (usando cache para evitar recargas)
+# --- Información del sistema ---
+st.sidebar.title("⚙️ Opciones")
+st.sidebar.info("Usa un modelo exportado desde **Teachable Machine** (formato `.h5`). "
+                "Toma una foto con la cámara para predecir la categoría.")
+st.sidebar.markdown("---")
+st.sidebar.write("🐍 Python versión:", platform.python_version())
+
+# --- Función para cargar el modelo ---
 @st.cache_resource
-def load_model():
-    model = tf.keras.models.load_model('keras_model.h5', compile=False)
-    return model
+def cargar_modelo():
+    try:
+        custom_objects = {"KerasLayer": tf.keras.layers.Layer}
+        model = tf.keras.models.load_model(
+            "keras_model.h5",
+            custom_objects=custom_objects,
+            compile=False
+        )
+        st.sidebar.success("✅ Modelo cargado correctamente")
+        return model
+    except Exception as e:
+        st.sidebar.error("❌ Error al cargar el modelo. Verifica el archivo `.h5`")
+        st.sidebar.text(str(e))
+        return None
 
-model = load_model()
+model = cargar_modelo()
 
-# Configuración inicial
-data = np.ndarray(shape=(1, 224, 224, 3), dtype=np.float32)
-st.title("🔍 Clasificador de Imágenes")
-st.caption("Sube o captura una imagen y el modelo la clasificará según tu entrenamiento en Teachable Machine.")
+# --- Encabezado principal ---
+st.title("📷 Reconocimiento de Imágenes con Teachable Machine")
+st.caption("Sube una imagen o toma una foto para probar el modelo entrenado.")
 
-# Captura desde cámara
-img_file_buffer = st.camera_input("📷 Toma una foto o súbela desde tu dispositivo")
+# Imagen de portada
+st.image("OIG5.jpg", width=350, caption="Ejemplo de reconocimiento")
 
-if img_file_buffer is not None:
-    # Leer imagen
+# --- Captura de imagen desde cámara ---
+img_file_buffer = st.camera_input("Toma una foto con tu cámara")
+
+if img_file_buffer is not None and model is not None:
+    # Convertir la imagen a formato numpy
     img = Image.open(img_file_buffer).convert("RGB")
-    img_resized = img.resize((224, 224))
+    img = img.resize((224, 224))
+    img_array = np.array(img)
 
     # Normalizar
-    image_array = np.asarray(img_resized)
-    normalized_image_array = (image_array.astype(np.float32) / 127.0) - 1
+    normalized_image_array = (img_array.astype(np.float32) / 127.0) - 1
+    data = np.ndarray(shape=(1, 224, 224, 3), dtype=np.float32)
     data[0] = normalized_image_array
 
-    # Predicción
+    # --- Predicción ---
     prediction = model.predict(data)
-    class_idx = np.argmax(prediction)
-    confidence = prediction[0][class_idx]
+    st.subheader("🔍 Resultado de la predicción:")
+    st.write(prediction)
 
-    # Mostrar resultados
-    st.image(img, caption="📸 Imagen analizada", width=320)
-    st.subheader("🧠 Resultado del modelo:")
-    if class_idx == 0:
-        st.success(f"Izquierda 🫱 — Confianza: {confidence:.2f}")
-    elif class_idx == 1:
-        st.success(f"Arriba ☝️ — Confianza: {confidence:.2f}")
-    else:
-        st.warning("No se pudo determinar la clase con alta confianza.")
+    # Mostrar etiquetas más probables
+    try:
+        labels = [line.strip() for line in open("labels.txt", "r").readlines()]
+        top_label = labels[np.argmax(prediction)]
+        confidence = np.max(prediction) * 100
+        st.success(f"✅ Predicción: **{top_label}** con **{confidence:.2f}%** de confianza.")
+    except:
+        st.warning("⚠️ No se encontró `labels.txt`, mostrando resultados numéricos.")
+
+elif model is None:
+    st.error("⚠️ No se pudo cargar el modelo. Revisa el archivo `keras_model.h5` en tu carpeta del proyecto.")
+else:
+    st.info("📸 Esperando una imagen...")
